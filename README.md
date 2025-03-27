@@ -145,27 +145,6 @@ docker run -d --name alertmanager -p 9093:9093 prom/alertmanager
 **Access:**
 - Alertmanager UI: `http://localhost:9093`
 
-### 3. ELK Stack
-Run a pre-built ELK Docker image for log management and analysis.
-
-**Docker Installation:**
-```bash
-docker run -d --name elk -p 5601:5601 -p 9200:9200 sebp/elk
-```
-
-**Access:**
-- Kibana: `http://localhost:5601`
-
-### 4. Grafana (Bonus)
-Optional visualization tool for metrics and monitoring.
-
-**Docker Installation:**
-```bash
-docker run -d --name grafana -p 3000:3000 grafana/grafana
-```
-
-**Access:**
-- Grafana UI: `http://localhost:3000`
 
 ## Task 2.2: Overview and Demonstration of Tool Functionalities
 
