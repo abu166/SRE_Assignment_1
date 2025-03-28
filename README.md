@@ -150,11 +150,12 @@ Run a pre-built ELK Docker image for log management and analysis.
 
 **Docker Installation:**
 ```bash
-docker run -d --name elk -p 5601:5601 -p 9200:9200 sebp/elk
+docker run -d --name elasticsearch -p 9200:9200 -p 9300:9300 -e "discovery.type=single-node" docker.elastic.co/elasticsearch/elasticsearch:7.17.0
+docker run -d --name kibana -p 5601:5601 --link elasticsearch:elasticsearch docker.elastic.co/kibana/kibana:7.17.0
 ```
 
 **Access:**
-- Kibana: `http://localhost:5601`
+- Elasticsearch: `curl http://localhost:9200`
 
 ### 4. Grafana (Bonus)
 Optional visualization tool for metrics and monitoring.
@@ -171,33 +172,161 @@ docker run -d --name grafana -p 3000:3000 grafana/grafana
 
 ### 1. Prometheus Monitoring
 
-**Setting Up a Monitor:**
-- Add a target in `prometheus.yml` and restart the container
+### Step 1: Configure `prometheus.yml`
 
-**PromQL Example Query:**
-```promql
-rate(http_requests_total[5m])
+1. Open the `prometheus.yml` configuration file.
+
+2. Add the following configuration under `scrape_configs`:
+   ```yaml
+   scrape_configs:
+     - job_name: "prometheus"
+       static_configs:
+         - targets: ["localhost:9090", "localhost:4000"]
+       scrape_interval: 15s # Set the scrape interval to 15 seconds.
+       scrape_timeout: 10s # Set the scrape timeout to 10 seconds.
+   ```
+
+**Configuration Explanation:**
+- `job_name`: Identifies the scrape job
+- `targets`: Specifies the endpoints to scrape metrics from
+  - `localhost:9090`: Prometheus itself
+  - `localhost:4000`: Another service or application
+- `scrape_interval`: How often Prometheus collects metrics (15 seconds)
+- `scrape_timeout`: Maximum time allowed for a scrape request (10 seconds)
+
+### Step 2: Run Prometheus
+
+Start Prometheus with the configuration file:
+```bash
+prometheus --config.file=prometheus.yml
+```
+
+### Step 3: Verify Target Status
+
+Use the `up` expression in Prometheus to check target health:
+
+- `up: 1` means the target is healthy and reachable
+- `up: 0` indicates the target is down or unreachable
+
+### Step 4: Query Metrics Using PromQL
+
+Open another terminal and use `curl` to query metrics:
+```bash
+curl -X GET "http://localhost:9090/api/v1/query?query=up"
+```
+
+**Troubleshooting:**
+To detect HTTP 500 errors:
+```bash
+curl -X GET "http://localhost:9090/api/v1/query?query=sum(rate(http_requests_total{status=~\"5..\"}[5m]))"
 ```
 
 ### 2. Alertmanager Configuration
 
+
+1. Create an ```alertmanager.yml``` file:
+
 **Creating an Alert Rule in Prometheus:**
 ```yaml
-groups:
-  - name: example
-    rules:
-      - alert: HighRequestLatency
-        expr: job:request_latency_seconds:mean5m{job="myjob"} > 0.5
-        for: 10m
-        labels:
-          severity: critical
-        annotations:
-          summary: "High request latency"
+    cat <<EOF > alertmanager.yml
+    route:
+    receiver: 'team-email'
+    group_by: ['severity']
+    routes:
+        - match:
+            severity: 'critical'
+        receiver: 'pagerduty'
+
+    receivers:
+    - name: 'team-email'
+        email_configs:
+        - to: 'team@example.com'
+    - name: 'pagerduty'
+        pagerduty_configs:
+        - service_key: '<your-pagerduty-key>'
+    EOF
+```
+
+**Troubleshooting:**
+Simulate an alert by triggering it in Prometheus:
+```bash
+curl -X POST "http://localhost:9093/api/v2/alerts" \
+  -H "Content-Type: application/json" \
+  -d '[{"labels": {"alertname": "HighRequestLatency", "severity": "critical"}}]'
 ```
 
 ### 3. ELK Stack Configuration
-- Configure Logstash to ingest logs
-- Create a dashboard in Kibana to visualize logs
+### Step 1: Install Elasticsearch, Logstash, and Kibana
+
+Pull and run the ELK Docker image:
+```bash
+# Pull the ELK Docker image
+docker pull sebp/elk
+
+# Run the ELK container
+docker run -p 5601:5601 -p 9200:9200 -p 5044:5044 -it sebp/elk
+```
+
+**Port Mappings:**
+- `5601`: Kibana web interface
+- `9200`: Elasticsearch HTTP API
+- `5044`: Logstash Beats input
+
+### Step 2: Configure Logstash
+
+Create a `logstash.conf` file:
+```bash
+    cat <<EOF > logstash.conf
+    input {
+    file {
+        path => "/var/log/application.log"
+        start_position => "beginning"
+    }
+    }
+    output {
+    elasticsearch {
+        hosts => ["http://localhost:9200"]
+        index => "application-logs"
+    }
+    }
+    EOF
+```
+
+Run Logstash inside the container:
+```bash
+# Enter the container
+docker exec -it <container_id> /bin/bash
+
+# Start Logstash with the configuration
+/usr/share/logstash/bin/logstash -f /path/to/logstash.conf
+```
+
+### Step 3: Visualize Logs in Kibana
+
+Access Kibana at `http://localhost:5601`:
+
+1. **Create an Index Pattern:**
+   - Navigate to Management > Stack Management > Index Patterns
+   - Create a new index pattern: `application-logs`
+
+2. **Build a Dashboard:**
+   - Go to Dashboard > Create new dashboard
+   - Add visualizations based on your log data
+   - Save and customize your dashboard
+
+## Troubleshooting and Log Search
+
+Use Kibana's Dev Tools to search logs:
+```json
+    GET /application-logs/_search
+    {
+    "query": {
+        "match": {
+        "message": "error"
+        }
+    }
+    }
+```
 
 ### 4. Grafana Dashboard
 - Create a dashboard
