@@ -255,77 +255,118 @@ curl -X POST "http://localhost:9093/api/v2/alerts" \
   -d '[{"labels": {"alertname": "HighRequestLatency", "severity": "critical"}}]'
 ```
 
-### 3. ELK Stack Configuration
+### 3. ELK Stack Configuration and Usage Guide
+
 ### Step 1: Install Elasticsearch, Logstash, and Kibana
 
-Pull and run the ELK Docker image:
-```bash
-# Pull the ELK Docker image
-docker pull sebp/elk
+#### Pull and Run the ELK Docker Image
 
-# Run the ELK container
-docker run -p 5601:5601 -p 9200:9200 -p 5044:5044 -it sebp/elk
-```
+1. Pull the Docker image:
+   ```bash
+   docker pull sebp/elk
+   ```
 
-**Port Mappings:**
+2. Run the ELK container:
+   ```bash
+   docker run -p 5601:5601 -p 9200:9200 -p 5044:5044 -it sebp/elk
+   ```
+
+#### Port Mappings
 - `5601`: Kibana web interface
 - `9200`: Elasticsearch HTTP API
 - `5044`: Logstash Beats input
 
+#### Verify Installation
+- **Elasticsearch**: Visit `http://localhost:9200`
+- **Kibana**: Visit `http://localhost:5601`
+
 ### Step 2: Configure Logstash
 
-Create a `logstash.conf` file:
+#### Create a Sample Log File
 ```bash
-    cat <<EOF > logstash.conf
-    input {
-    file {
-        path => "/var/log/application.log"
-        start_position => "beginning"
-    }
-    }
-    output {
-    elasticsearch {
-        hosts => ["http://localhost:9200"]
-        index => "application-logs"
-    }
-    }
-    EOF
+echo "2023-10-01 12:00:00 INFO Application started" > /var/log/application.log
+echo "2023-10-01 12:05:00 ERROR Failed to connect to database" >> /var/log/application.log
+echo "2023-10-01 12:10:00 WARN High memory usage detected" >> /var/log/application.log
 ```
 
-Run Logstash inside the container:
+#### Create Logstash Configuration File
 ```bash
-# Enter the container
-docker exec -it <container_id> /bin/bash
-
-# Start Logstash with the configuration
-/usr/share/logstash/bin/logstash -f /path/to/logstash.conf
+cat <<EOF > logstash.conf
+input {
+  file {
+    path => "/var/log/application.log"
+    start_position => "beginning"
+  }
+}
+filter {
+  grok {
+    match => { "message" => "%{TIMESTAMP_ISO8601:timestamp} %{LOGLEVEL:log_level} %{GREEDYDATA:message}" }
+  }
+}
+output {
+  elasticsearch {
+    hosts => ["http://localhost:9200"]
+    index => "application-logs"
+  }
+  stdout { codec => rubydebug }
+}
+EOF
 ```
+
+#### Run Logstash
+1. Enter the container:
+   ```bash
+   docker exec -it <container_id> /bin/bash
+   ```
+
+2. Start Logstash:
+   ```bash
+   /usr/share/logstash/bin/logstash -f /path/to/logstash.conf
+   ```
 
 ### Step 3: Visualize Logs in Kibana
 
-Access Kibana at `http://localhost:5601`:
+#### Access Kibana
+Open `http://localhost:5601`
 
-1. **Create an Index Pattern:**
-   - Navigate to Management > Stack Management > Index Patterns
-   - Create a new index pattern: `application-logs`
+#### Create an Index Pattern
+1. Navigate to **Management > Stack Management > Index Patterns**
+2. Create an index pattern: `application-logs`
+3. Select `@timestamp` as the time field
 
-2. **Build a Dashboard:**
-   - Go to Dashboard > Create new dashboard
-   - Add visualizations based on your log data
-   - Save and customize your dashboard
+#### Build a Dashboard
+Create visualizations such as:
+- Pie Chart: Distribution of log levels
+- Bar Graph: Log frequency over time
+- Time Series: Log volume trends
 
-## Troubleshooting and Log Search
+### Troubleshooting and Log Search
 
-Use Kibana's Dev Tools to search logs:
+#### Search for Errors
 ```json
-    GET /application-logs/_search
-    {
-    "query": {
-        "match": {
-        "message": "error"
-        }
+GET /application-logs/_search
+{
+  "query": {
+    "match": {
+      "log_level": "ERROR"
     }
+  }
+}
+```
+
+#### Correlate Logs Across Multiple Sources
+```json
+GET /_all/_search
+{
+  "query": {
+    "bool": {
+      "must": [
+        { "match": { "log_level": "ERROR" } },
+        { "range": { "@timestamp": { "gte": "now-1h" } } }
+      ]
     }
+  }
+}
 ```
 
 ### 4. Grafana Dashboard
